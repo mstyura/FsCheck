@@ -22,17 +22,29 @@ module internal Reflect =
     let isRecordType (ty : Type) = FSharpType.IsRecord(ty, allowAccessToPrivateRepresentation)
     let isUnionType ty = FSharpType.IsUnion ty
     let isTupleType ty = FSharpType.IsTuple ty
-    let getPublicCtors (ty: Type) = 
+    let private getPublicCtors (ty: Type) = 
         let tyDef = ty.GetTypeInfo()
         [| for ctor in tyDef.DeclaredConstructors do 
              if ctor.IsPublic then yield ctor |]
 
     let isCSharpRecordType (ty: Type) = 
-        ty.IsClass && not ty.IsAbstract
-        && not ty.ContainsGenericParameters
+        let hasPublicWriteableProperties (ty: Type) =
+            ty.GetRuntimeProperties()
+            |> Seq.exists (fun p -> p.CanWrite && p.SetMethod <> null && p.SetMethod.IsPublic)
+
+        let allPublicFieldsAreReadOnly (ty: Type) = 
+            ty.GetRuntimeFields()
+            |> Seq.filter (fun field -> field.IsPublic && not field.IsStatic)
+            |> Seq.forall (fun field -> field.IsInitOnly)
+
+        let nonGenericNonAbstractClass (ty: Type) =
+            let tyDef = ty.GetTypeInfo()
+            tyDef.IsClass && not tyDef.IsAbstract && not tyDef.ContainsGenericParameters
+
+        nonGenericNonAbstractClass ty
         && (getPublicCtors ty).Length = 1
-        && not (ty.GetProperties(BindingFlags.Public ||| BindingFlags.Instance) |> Seq.exists (fun p -> p.CanWrite))
-        && ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance) |> Seq.forall (fun f -> f.IsInitOnly)
+        && not (hasPublicWriteableProperties ty)
+        && allPublicFieldsAreReadOnly ty
 
     /// Get information on the fields of a record type
     let getRecordFields (recordType: System.Type) = 
