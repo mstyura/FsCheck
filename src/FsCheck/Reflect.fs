@@ -24,7 +24,11 @@ module internal Reflect =
     let isRecordType (ty : Type) = FSharpType.IsRecord(ty, recordFieldBindingFlags)
     let isUnionType ty = FSharpType.IsUnion ty
     let isTupleType ty = FSharpType.IsTuple ty
-    let getPublicCtors (ty: Type) = ty.GetConstructors() |> Array.filter (fun c -> c.IsPublic)
+    let getPublicCtors (ty: Type) = 
+        let tyDef = ty.GetTypeInfo()
+        [| for ctor in tyDef.DeclaredConstructors do 
+             if ctor.IsPublic then yield ctor |]
+
     let isCSharpRecordType (ty: Type) = 
         ty.IsClass && not ty.IsAbstract
         && not ty.ContainsGenericParameters
