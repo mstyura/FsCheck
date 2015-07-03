@@ -17,11 +17,9 @@ module internal Reflect =
     open Microsoft.FSharp.Reflection
     open System.Reflection
 
-    let private recordFieldBindingFlags = 
-        BindingFlags.GetProperty ||| BindingFlags.Instance 
-        ||| BindingFlags.NonPublic ||| BindingFlags.Public
+    let private allowAccessToPrivateRepresentation = true
 
-    let isRecordType (ty : Type) = FSharpType.IsRecord(ty, recordFieldBindingFlags)
+    let isRecordType (ty : Type) = FSharpType.IsRecord(ty, allowAccessToPrivateRepresentation)
     let isUnionType ty = FSharpType.IsUnion ty
     let isTupleType ty = FSharpType.IsTuple ty
     let getPublicCtors (ty: Type) = 
@@ -39,17 +37,17 @@ module internal Reflect =
     /// Get information on the fields of a record type
     let getRecordFields (recordType: System.Type) = 
         if isRecordType recordType then 
-            FSharpType.GetRecordFields(recordType, recordFieldBindingFlags)
+            FSharpType.GetRecordFields(recordType, allowAccessToPrivateRepresentation)
         else 
             failwithf "The input type must be a record type.  Got %A" recordType
 
     /// Get constructor for record type
     let getRecordConstructor recordType = 
-        FSharpValue.PreComputeRecordConstructor(recordType, recordFieldBindingFlags)              
+        FSharpValue.PreComputeRecordConstructor(recordType, allowAccessToPrivateRepresentation)
 
     /// Get reader for record type
     let getRecordReader recordType = 
-        FSharpValue.PreComputeRecordReader(recordType, recordFieldBindingFlags)
+        FSharpValue.PreComputeRecordReader(recordType, allowAccessToPrivateRepresentation)
 
     let getCSharpRecordFields (recordType: Type) =
         if isCSharpRecordType recordType then
@@ -64,16 +62,16 @@ module internal Reflect =
 
     /// Returns the case name, type, and functions that will construct a constructor and a reader of a union type respectively
     let getUnionCases unionType : (string * (int * System.Type list * (obj[] -> obj) * (obj -> obj[]))) list = 
-        [ for case in FSharpType.GetUnionCases(unionType, recordFieldBindingFlags) -> 
+        [ for case in FSharpType.GetUnionCases(unionType, allowAccessToPrivateRepresentation) -> 
             let types =    [ for fld in case.GetFields() -> fld.PropertyType ]              
-            let ctorFn =   FSharpValue.PreComputeUnionConstructor(case, recordFieldBindingFlags)                           
-            let readerFn = FSharpValue.PreComputeUnionReader(case, recordFieldBindingFlags)
+            let ctorFn =   FSharpValue.PreComputeUnionConstructor(case, allowAccessToPrivateRepresentation)                           
+            let readerFn = FSharpValue.PreComputeUnionReader(case, allowAccessToPrivateRepresentation)
                 
             case.Name, (case.Tag, types, ctorFn, readerFn)]
 
     /// Get reader for union case name (aka tag)
     let getUnionTagReader unionType = 
-        FSharpValue.PreComputeUnionTagReader(unionType, recordFieldBindingFlags)
+        FSharpValue.PreComputeUnionTagReader(unionType, allowAccessToPrivateRepresentation)
                 
     // resolve fails if the generic type is only determined by the return type 
     //(e.g., Array.zero_create) but that is easily fixed by additionally passing in the return type...
