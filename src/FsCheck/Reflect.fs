@@ -84,7 +84,7 @@ module internal Reflect =
     /// Get reader for union case name (aka tag)
     let getUnionTagReader unionType = 
         FSharpValue.PreComputeUnionTagReader(unionType, allowAccessToPrivateRepresentation)
-                
+
     // resolve fails if the generic type is only determined by the return type 
     //(e.g., Array.zero_create) but that is easily fixed by additionally passing in the return type...
     let rec private resolve (acc:Dictionary<_,_>) (a:Type, f:Type) =
@@ -92,7 +92,7 @@ module internal Reflect =
             if not (acc.ContainsKey(f)) then acc.Add(f,a)
         else 
             if a.HasElementType then resolve acc (a.GetElementType(), f.GetElementType())
-            Array.zip (a.GetGenericArguments()) (f.GetGenericArguments()) |>
+            Array.zip (a.GetTypeInfo().GenericTypeArguments) (f.GetTypeInfo().GenericTypeArguments) |>
             Array.iter (resolve acc)
 
     let invokeMethod (m:MethodInfo) target args =
