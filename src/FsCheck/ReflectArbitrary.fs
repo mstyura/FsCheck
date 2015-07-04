@@ -14,13 +14,15 @@ namespace FsCheck
 module internal ReflectArbitrary =
 
     open System
+    open System.Reflection
     open Microsoft.FSharp.Reflection
     open Reflect
     open Gen
 
     /// Generate a random enum of the type specified by the System.Type
     let enumOfType (t: System.Type) : Gen<Enum> =
-       let isFlags = t.GetCustomAttributes(typeof<System.FlagsAttribute>,false).Length = 1 
+       let tyDef = t.GetTypeInfo()
+       let isFlags = tyDef.GetCustomAttributes(typeof<System.FlagsAttribute>,false) |> Seq.length = 1
        let vals: Array = System.Enum.GetValues(t) 
        let elems = elements [ for i in 0..vals.Length-1 -> vals.GetValue(i) :?> System.Enum] 
        if isFlags then 
@@ -78,8 +80,8 @@ module internal ReflectArbitrary =
                     |> oneof 
                     |> resize (size - 1) 
                 sized getgs |> box
-                
-            elif t.IsEnum then
+
+            elif t.GetTypeInfo().IsEnum then
                     enumOfType t |> box
 
             elif isCSharpRecordType t then
