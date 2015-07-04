@@ -22,14 +22,16 @@ module TypeClass =
     //parametrized active pattern that recognizes generic types with generic type definitions equal to the first paramater, 
     //and that returns the generic type parameters of the generic type.
     let private (|GenericTypeDef|_|) (p:Type) (t:Type) = 
-        if t.IsGenericType then
+        let tDef = t.GetTypeInfo()
+        if tDef.IsGenericType then
             let generic = t.GetGenericTypeDefinition() 
-            if p.Equals(generic) then Some(t.GetGenericArguments()) else None
+            if p.Equals(generic) then Some(tDef.GenericTypeArguments |> Seq.toArray) else None
         else None
 
     let private (|IsArray|IsGeneric|IsOther|) (x:Type) = 
+        let xDef = x.GetTypeInfo()
         if x.IsArray then IsArray
-        elif x.IsGenericType then IsGeneric
+        elif xDef.IsGenericType then IsGeneric
         else IsOther
 
     let [<Literal>] internal CatchAllName = "--FsCheck.CatchAll--"
@@ -40,6 +42,7 @@ module TypeClass =
         | Generic of Type
         | Array of Type
         | CatchAll of Type
+
         static member StringStamp instanceKind =
             match instanceKind with
             | Primitive t
@@ -50,14 +53,25 @@ module TypeClass =
         override x.GetHashCode() = hashOn InstanceKind.StringStamp x
         interface System.IComparable with
             member x.CompareTo y = compareOn InstanceKind.StringStamp x y
+
+
         static member FromType (``type``:Type) = 
+            let isGenericTypeDef (t: Type) =
+                let tDef = t.GetTypeInfo()
+                tDef.IsGenericType && (tDef.GenericTypeArguments |> Array.forall (fun t -> t.IsGenericParameter))
+
+            let isTypeParameter (t: Type) = t.IsGenericParameter
+
+            let isGenericArray (t: Type) =
+                t.IsArray && t.GetElementType().IsGenericParameter
+
             match ``type`` with
-            | catchAll when catchAll.IsGenericParameter -> 
+            | catchAll when isTypeParameter catchAll -> 
                 CatchAll catchAll
-            | generic when generic.IsGenericType && (generic.GetGenericArguments() |> Array.forall (fun t -> t.IsGenericParameter)) ->
-                    Generic <| generic.GetGenericTypeDefinition()
-            | arr when arr.IsArray && arr.GetElementType().IsGenericParameter ->
-                    Array <| arr
+            | generic when isGenericTypeDef generic ->
+                Generic <| generic.GetGenericTypeDefinition()
+            | arr when isGenericArray arr ->
+                Array <| arr
             | prim -> Primitive prim
  
     [<CustomComparison;CustomEquality>]
@@ -70,7 +84,7 @@ module TypeClass =
             member x.CompareTo y = compareOn InstanceArgument.TypeFullName x y
 
     //returns a dictionary of generic types to methodinfo, a catch all, and array types in a list by rank
-    let private findInstances (typeClass:Type) bindingFlags instancesType = 
+    let private findInstances (typeClass:Type) onlyPublic instancesType = 
         let addMethod acc (m:MethodInfo) =
             match m.ReturnType with
             | GenericTypeDef typeClass args when args.Length <> 1 -> 
@@ -79,8 +93,10 @@ module TypeClass =
                 let instance = args.[0]
                 (InstanceKind.FromType instance,m) :: acc
             | _ -> acc
+
         let addMethods (t:Type) =
-            t.GetMethods((BindingFlags.Static ||| BindingFlags.Public ||| bindingFlags))
+            t.GetRuntimeMethods()
+            |> Seq.filter (fun met -> met.IsStatic && (if onlyPublic then met.IsPublic else true))
             |> Seq.fold addMethod []
         let instances = addMethods instancesType
         if instances.Length = 0 then 
@@ -121,7 +137,7 @@ module TypeClass =
         ///Use Merge in addition to achieve that, or use DiscoverAndMerge to do both.
         member x.Discover(onlyPublic,instancesType) =
             let newInstances = 
-                findInstances x.Class (if onlyPublic then BindingFlags.Default else BindingFlags.NonPublic)  instancesType
+                findInstances x.Class onlyPublic instancesType
                 |> Seq.map (fun (instanceKind,methodInfo) -> 
                             ((instanceKind, 
                               methodInfo.GetParameters() |> Seq.map (fun param -> Argument param.ParameterType)  |> Set.ofSeq),
@@ -170,7 +186,7 @@ module TypeClass =
                     | (_,MapContains (Primitive instance, argumentTypes) mi') -> 
                         mi'
                     | (IsGeneric,MapContains (Generic (instance.GetGenericTypeDefinition()), argumentTypes) mi') -> 
-                        if mi'.ContainsGenericParameters then (mi'.MakeGenericMethod(instance.GetGenericArguments())) else mi'
+                        if mi'.ContainsGenericParameters then (mi'.MakeGenericMethod(instance.GetTypeInfo().GenericTypeArguments)) else mi'
                     | (IsArray, MapContains (Array instance, argumentTypes) mi') -> 
                         if mi'.ContainsGenericParameters then mi'.MakeGenericMethod([|instance.GetElementType()|]) else mi'
                     | (_,MapContains (CatchAll instance,argumentTypes) mi') ->  
@@ -185,8 +201,8 @@ module TypeClass =
             |> unbox<'TypeClassT> 
 
         static member New<'TypeClass>() =
-            let t = (typedefof<'TypeClass>)
-            if t.IsGenericTypeDefinition then 
+            let tDef = (typedefof<'TypeClass>).GetTypeInfo()
+            if tDef.IsGenericTypeDefinition then 
                 TypeClass<'TypeClass>() 
             else 
-                failwithf "Type parameter %s must be a generic type definition." typeof<'TypeClass>.FullName
+                failwithf "Type parameter %s must be a generic type definition." tDef.FullName
